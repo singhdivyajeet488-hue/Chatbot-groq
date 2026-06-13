@@ -37,8 +37,8 @@ async def ai_control(interaction: discord.Interaction, action: str, target_chann
 async def imagine(interaction: discord.Interaction, prompt: str):
     await interaction.response.defer()
     
-    # We use Stable Diffusion API structure
-    url = "https://stablediffusionapi.com/api/v4/dreambooth"
+    # Official Stable Diffusion API text-to-image endpoint
+    url = "https://stablediffusionapi.com/api/v3/text2img"
     payload = {
         "key": os.environ.get("IMAGE_API_KEY"),
         "prompt": prompt,
@@ -50,11 +50,19 @@ async def imagine(interaction: discord.Interaction, prompt: str):
 
     async with aiohttp.ClientSession() as session:
         async with session.post(url, json=payload) as response:
+            # Handle non-200 errors without crashing
+            if response.status != 200:
+                error_text = await response.text()
+                print(f"API Error ({response.status}): {error_text}")
+                await interaction.followup.send(f"API Error: The server returned status {response.status}. Please check your API Key.")
+                return
+
             data = await response.json()
+            # Most SD APIs return a list in the 'output' field
             if "output" in data and data["output"]:
-                await interaction.followup.send(f"**{prompt}**\n{data['output'][0]}")
+                await interaction.followup.send(f"**Prompt:** {prompt}\n{data['output'][0]}")
             else:
-                await interaction.followup.send("Error generating image.")
+                await interaction.followup.send("Generation complete, but no image URL was found in the response.")
 
 # --- CHAT LISTENER ---
 @bot.event
@@ -65,9 +73,14 @@ async def on_message(message):
             try:
                 headers = {"Authorization": f"Bearer {os.environ.get('GROQ_API_KEY')}", "Content-Type": "application/json"}
                 payload = {"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": message.content}]}
+                response = requests.post("https://api.groq.com/openai/v1/chat/completions", json=headers, json=payload) # Corrected syntax
+                
+                # Use requests.post for chat to match your working local script
                 response = requests.post("https://api.groq.com/openai/v1/chat/completions", json=payload, headers=headers)
-                await message.channel.send(response.json()["choices"][0]["message"]["content"])
-            except Exception as e: print(e)
+                reply = response.json()["choices"][0]["message"]["content"]
+                await message.channel.send(reply)
+            except Exception as e: 
+                print(f"Chat Error: {e}")
     await bot.process_commands(message)
 
 bot.run(os.environ.get("DISCORD_TOKEN"))
