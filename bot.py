@@ -6,6 +6,7 @@ import requests
 import aiohttp
 from dotenv import load_dotenv
 
+# Load variables from environment
 load_dotenv()
 
 class UnifiedBot(commands.Bot):
@@ -17,7 +18,7 @@ class UnifiedBot(commands.Bot):
 
     async def setup_hook(self):
         await self.tree.sync()
-        print("Bot online and commands synced.")
+        print("Bot is online and slash commands are synced.")
 
 bot = UnifiedBot()
 
@@ -26,7 +27,7 @@ bot = UnifiedBot()
 @app_commands.choices(action=[app_commands.Choice(name="Start", value="start"), app_commands.Choice(name="Stop", value="stop")])
 async def ai_control(interaction: discord.Interaction, action: str, target_channel: discord.TextChannel):
     if action == "start":
-        bot.monitored_channels[target_channel.id] = {"active": True, "history": [{"role": "system", "content": "You are a helpful AI assistant."}]}
+        bot.monitored_channels[target_channel.id] = True
         await interaction.response.send_message(f"AI chat enabled in {target_channel.mention}")
     else:
         bot.monitored_channels.pop(target_channel.id, None)
@@ -37,7 +38,7 @@ async def ai_control(interaction: discord.Interaction, action: str, target_chann
 async def imagine(interaction: discord.Interaction, prompt: str):
     await interaction.response.defer()
     
-    # Official Stable Diffusion API text-to-image endpoint
+    # Using the standard v3 text2img endpoint
     url = "https://stablediffusionapi.com/api/v3/text2img"
     payload = {
         "key": os.environ.get("IMAGE_API_KEY"),
@@ -48,21 +49,21 @@ async def imagine(interaction: discord.Interaction, prompt: str):
         "num_inference_steps": "30"
     }
 
-    async with aiohttp.ClientSession() as session:
-        async with session.post(url, json=payload) as response:
-            # Handle non-200 errors without crashing
-            if response.status != 200:
-                error_text = await response.text()
-                print(f"API Error ({response.status}): {error_text}")
-                await interaction.followup.send(f"API Error: The server returned status {response.status}. Please check your API Key.")
-                return
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload) as response:
+                if response.status != 200:
+                    text = await response.text()
+                    await interaction.followup.send(f"API Error ({response.status}): The server rejected the request. Check your API Key.")
+                    return
 
-            data = await response.json()
-            # Most SD APIs return a list in the 'output' field
-            if "output" in data and data["output"]:
-                await interaction.followup.send(f"**Prompt:** {prompt}\n{data['output'][0]}")
-            else:
-                await interaction.followup.send("Generation complete, but no image URL was found in the response.")
+                data = await response.json()
+                if "output" in data and data["output"]:
+                    await interaction.followup.send(f"**Prompt:** {prompt}\n{data['output'][0]}")
+                else:
+                    await interaction.followup.send("Generated, but no image URL was returned.")
+    except Exception as e:
+        await interaction.followup.send(f"An error occurred: {str(e)}")
 
 # --- CHAT LISTENER ---
 @bot.event
@@ -71,15 +72,22 @@ async def on_message(message):
     if message.channel.id in bot.monitored_channels:
         async with message.channel.typing():
             try:
-                headers = {"Authorization": f"Bearer {os.environ.get('GROQ_API_KEY')}", "Content-Type": "application/json"}
-                payload = {"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": message.content}]}
-                response = requests.post("https://api.groq.com/openai/v1/chat/completions", json=headers, json=payload) # Corrected syntax
+                headers = {"Content-Type": "application/json"}
+                payload = {
+                    "model": "llama-3.3-70b-versatile",
+                    "messages": [{"role": "user", "content": message.content}]
+                }
                 
-                # Use requests.post for chat to match your working local script
-                response = requests.post("https://api.groq.com/openai/v1/chat/completions", json=payload, headers=headers)
+                # Corrected: single 'json' argument and 'headers' argument
+                response = requests.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    json=payload,
+                    headers={"Authorization": f"Bearer {os.environ.get('GROQ_API_KEY')}"}
+                )
+                
                 reply = response.json()["choices"][0]["message"]["content"]
                 await message.channel.send(reply)
-            except Exception as e: 
+            except Exception as e:
                 print(f"Chat Error: {e}")
     await bot.process_commands(message)
 
