@@ -41,11 +41,11 @@ async def ai_control(interaction: discord.Interaction, action: str, target_chann
 async def imagine(interaction: discord.Interaction, prompt: str):
     await interaction.response.defer() # Extends the 3-second token expiration limit
     
-    # Official updated production text-to-image API path
+    # Official ModelsLab V6 Stable Endpoint URL
     url = "https://modelslab.com/api/v6/images/text2img"
     payload = {
         "key": os.environ.get("IMAGE_API_KEY"),
-        "model_id": "v6fp16",  # Standard balanced high-quality model
+        "model_id": "v6fp16",  # Standard high-quality production model ID
         "prompt": prompt,
         "negative_prompt": "blurry, lower quality, distorted proportions, low resolution",
         "width": 512,
@@ -61,7 +61,7 @@ async def imagine(interaction: discord.Interaction, prompt: str):
                 if response.status != 200:
                     raw_err = await response.text()
                     print(f"ModelsLab API Response Error status {response.status}: {raw_err}")
-                    await interaction.followup.send(f"⚠️ API Error ({response.status}). The endpoint rejected the credentials or data format.")
+                    await interaction.followup.send(f"⚠️ API Error ({response.status}). The server rejected the format or parameters.")
                     return
 
                 data = await response.json()
