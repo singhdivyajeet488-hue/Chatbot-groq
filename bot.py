@@ -6,7 +6,6 @@ import requests
 import aiohttp
 from dotenv import load_dotenv
 
-# Load variables from environment
 load_dotenv()
 
 class UnifiedBot(commands.Bot):
@@ -38,15 +37,16 @@ async def ai_control(interaction: discord.Interaction, action: str, target_chann
 async def imagine(interaction: discord.Interaction, prompt: str):
     await interaction.response.defer()
     
-    # Using the standard v3 text2img endpoint
-    url = "https://stablediffusionapi.com/api/v3/text2img"
+    # ModelsLab updated v6 realtime endpoint URL
+    url = "https://modelslab.com/api/v6/realtime/text2img"
     payload = {
         "key": os.environ.get("IMAGE_API_KEY"),
+        "model_id": "realtime-text-to-image",
         "prompt": prompt,
         "width": "512",
         "height": "512",
         "samples": "1",
-        "num_inference_steps": "30"
+        "safety_checker": "no"
     }
 
     try:
@@ -54,16 +54,21 @@ async def imagine(interaction: discord.Interaction, prompt: str):
             async with session.post(url, json=payload) as response:
                 if response.status != 200:
                     text = await response.text()
-                    await interaction.followup.send(f"API Error ({response.status}): The server rejected the request. Check your API Key.")
+                    print(f"ModelsLab API Error Response: {text}")
+                    await interaction.followup.send(f"API Error ({response.status}): Endpoint rejected payload. Check server logs.")
                     return
 
                 data = await response.json()
+                
+                # ModelsLab typically puts result strings inside the "output" array
                 if "output" in data and data["output"]:
-                    await interaction.followup.send(f"**Prompt:** {prompt}\n{data['output'][0]}")
+                    embed = discord.Embed(title=f"Generated Image", description=f"**Prompt:** {prompt}")
+                    embed.set_image(url=data["output"][0])
+                    await interaction.followup.send(embed=embed)
                 else:
-                    await interaction.followup.send("Generated, but no image URL was returned.")
+                    await interaction.followup.send("Image processed, but no valid download URL was returned by the provider.")
     except Exception as e:
-        await interaction.followup.send(f"An error occurred: {str(e)}")
+        await interaction.followup.send(f"An unexpected internal connection error occurred: {str(e)}")
 
 # --- CHAT LISTENER ---
 @bot.event
@@ -72,23 +77,25 @@ async def on_message(message):
     if message.channel.id in bot.monitored_channels:
         async with message.channel.typing():
             try:
-                headers = {"Content-Type": "application/json"}
+                headers = {
+                    "Authorization": f"Bearer {os.environ.get('GROQ_API_KEY')}",
+                    "Content-Type": "application/json"
+                }
                 payload = {
                     "model": "llama-3.3-70b-versatile",
                     "messages": [{"role": "user", "content": message.content}]
                 }
                 
-                # Corrected: single 'json' argument and 'headers' argument
                 response = requests.post(
                     "https://api.groq.com/openai/v1/chat/completions",
                     json=payload,
-                    headers={"Authorization": f"Bearer {os.environ.get('GROQ_API_KEY')}"}
+                    headers=headers
                 )
                 
                 reply = response.json()["choices"][0]["message"]["content"]
                 await message.channel.send(reply)
             except Exception as e:
-                print(f"Chat Error: {e}")
+                print(f"Groq Chat Error: {e}")
     await bot.process_commands(message)
 
 bot.run(os.environ.get("DISCORD_TOKEN"))
